@@ -1,0 +1,432 @@
+package jstream
+
+import (
+	"io"
+	"strconv"
+	"unicode/utf16"
+)
+
+type MetaValue struct {
+	Offset int
+	Length int
+	Depth  int
+	Value  interface{}
+}
+
+// Decoder is the object that holds the state of the decoding
+type Decoder struct {
+	*scanner
+	depth     int
+	emitDepth int
+	scratch   *scratch
+	metaCh    chan *MetaValue
+	err       error
+
+	// follow line position to add context to errors
+	lineNo    int
+	lineStart int
+}
+
+// NewDecoder creates new Decoder from the provider io.Reader.
+// If docStream is true, Decoder will parse all top-level documents in the reader
+func NewDecoder(r io.Reader, emitDepth int) *Decoder {
+	d := &Decoder{
+		emitDepth: emitDepth,
+		scanner:   newScanner(r),
+		scratch:   &scratch{data: make([]byte, 128)},
+		metaCh:    make(chan *MetaValue),
+	}
+	go d.decode()
+	return d
+}
+
+func (d *Decoder) Stream() chan *MetaValue { return d.metaCh }
+func (d *Decoder) Err() error              { return d.err }
+
+// Decode parses the JSON-encoded data and returns an interface value
+func (d *Decoder) decode() {
+	defer close(d.metaCh)
+	for d.pos < d.end {
+		_, err := d.emitAny()
+		if err != nil {
+			d.err = err
+			break
+		}
+	}
+}
+
+func (d *Decoder) emitAny() (interface{}, error) {
+	d.skipSpaces()
+	if d.pos >= d.end {
+		return nil, nil
+	}
+	offset := d.pos - 1
+	i, err := d.any()
+	if d.depth == d.emitDepth {
+		d.metaCh <- &MetaValue{
+			Offset: offset,
+			Length: d.pos - offset,
+			Depth:  d.depth,
+			Value:  i,
+		}
+	}
+	return i, err
+}
+
+// any used to decode any valid JSON value, and returns an
+// interface{} that holds the actual data
+func (d *Decoder) any() (interface{}, error) {
+	c := d.cur()
+
+	switch c {
+	case '"':
+		return d.string()
+	case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
+		return d.number()
+	case '-':
+		if c = d.next(); c < '0' && c > '9' {
+			return nil, d.mkError(ErrSyntax, "in negative numeric literal")
+		}
+		n, err := d.number()
+		if err != nil {
+			return nil, err
+		}
+		return -n, nil
+	case 'f':
+		if d.remaining() < 4 {
+			return nil, d.mkError(ErrUnexpectedEOF)
+		}
+		if d.next() == 'a' && d.next() == 'l' && d.next() == 's' && d.next() == 'e' {
+			return false, nil
+		}
+		return nil, d.mkError(ErrSyntax, "in literal false")
+	case 't':
+		if d.remaining() < 3 {
+			return nil, d.mkError(ErrUnexpectedEOF)
+		}
+		if d.next() == 'r' && d.next() == 'u' && d.next() == 'e' {
+			return true, nil
+		}
+		return nil, d.mkError(ErrSyntax, "in literal true")
+	case 'n':
+		if d.remaining() < 3 {
+			return nil, d.mkError(ErrUnexpectedEOF)
+		}
+		if d.next() == 'u' && d.next() == 'l' && d.next() == 'l' {
+			return nil, nil
+		}
+		return nil, d.mkError(ErrSyntax, "in literal null")
+	case '[':
+		return d.array()
+	case '{':
+		return d.object()
+	default:
+		return nil, d.mkError(ErrSyntax, "looking for beginning of value")
+	}
+}
+
+// string called by `any` or `object`(for map keys) after reading `"`
+func (d *Decoder) string() (string, error) {
+	d.scratch.reset()
+
+	var (
+		c = d.next()
+	)
+
+scan:
+	for {
+		if d.remaining() == 0 {
+			return "", d.mkError(ErrUnexpectedEOF)
+		}
+
+		switch {
+		case c == '"':
+			return string(d.scratch.bytes()), nil
+		case c == '\\':
+			c = d.next()
+			goto scan_esc
+		case c < 0x20:
+			return "", d.mkError(ErrSyntax, "in string literal")
+		// Coerce to well-formed UTF-8.
+		default:
+			d.scratch.add(c)
+			c = d.next()
+		}
+	}
+
+scan_esc:
+	switch c {
+	case '"', '\\', '/', '\'':
+		d.scratch.add(c)
+	case 'u':
+		goto scan_u
+	case 'b':
+		d.scratch.add('\b')
+	case 'f':
+		d.scratch.add('\f')
+	case 'n':
+		d.scratch.add('\n')
+	case 'r':
+		d.scratch.add('\r')
+	case 't':
+		d.scratch.add('\t')
+	default:
+		return "", d.mkError(ErrSyntax, "in string escape code")
+	}
+	c = d.next()
+	goto scan
+
+scan_u:
+	r := d.u4()
+	if r < 0 {
+		return "", d.mkError(ErrSyntax, "in unicode escape sequence")
+	}
+
+	// check for proceeding surrogate pair
+	c = d.next()
+	if !utf16.IsSurrogate(r) || c != '\\' {
+		d.scratch.addRune(r)
+		goto scan
+	}
+	if c = d.next(); c != 'u' {
+		d.scratch.addRune(r)
+		goto scan_esc
+	}
+
+	r2 := d.u4()
+	if r2 < 0 {
+		return "", d.mkError(ErrSyntax, "in unicode escape sequence")
+	}
+
+	// write surrogate pair
+	d.scratch.addRune(utf16.DecodeRune(r, r2))
+	c = d.next()
+	goto scan
+}
+
+// u4 reads four bytes following a \u escape
+func (d *Decoder) u4() rune {
+	// logic taken from:
+	// github.com/buger/jsonparser/blob/master/escape.go#L20
+	var h [4]int
+	for i := 0; i < 4; i++ {
+		c := d.next()
+		switch {
+		case c >= '0' && c <= '9':
+			h[i] = int(c - '0')
+		case c >= 'A' && c <= 'F':
+			h[i] = int(c - 'A' + 10)
+		case c >= 'a' && c <= 'f':
+			h[i] = int(c - 'a' + 10)
+		default:
+			return -1
+		}
+	}
+	return rune(h[0]<<12 + h[1]<<8 + h[2]<<4 + h[3])
+}
+
+// number called by `any` after reading number between 0 to 9
+func (d *Decoder) number() (float64, error) {
+	d.scratch.reset()
+
+	var (
+		c       = d.cur()
+		n       float64
+		isFloat bool
+	)
+
+	// digits first
+	switch {
+	case c == '0':
+		d.scratch.add(c)
+		c = d.next()
+	case '1' <= c && c <= '9':
+		for ; c >= '0' && c <= '9'; c = d.next() {
+			n = 10*n + float64(c-'0')
+			d.scratch.add(c)
+		}
+	}
+
+	// . followed by 1 or more digits
+	if c == '.' {
+		isFloat = true
+		d.scratch.add(c)
+
+		// first char following must be digit
+		if c = d.next(); c < '0' && c > '9' {
+			return 0, d.mkError(ErrSyntax, "after decimal point in numeric literal")
+		}
+		d.scratch.add(c)
+
+		for {
+			if d.remaining() == 0 {
+				return 0, d.mkError(ErrUnexpectedEOF)
+			}
+			if c = d.next(); c < '0' || c > '9' {
+				break
+			}
+			d.scratch.add(c)
+		}
+	}
+
+	// e or E followed by an optional - or + and
+	// 1 or more digits.
+	if c == 'e' || c == 'E' {
+		isFloat = true
+		d.scratch.add(c)
+
+		if c = d.next(); c == '+' || c == '-' {
+			d.scratch.add(c)
+			if c = d.next(); c < '0' || c > '9' {
+				return 0, d.mkError(ErrSyntax, "in exponent of numeric literal")
+			}
+			d.scratch.add(c)
+		}
+		for c = d.next(); '0' <= c && c <= '9'; {
+			d.scratch.add(c)
+		}
+	}
+
+	if isFloat {
+		var (
+			err error
+			sn  string
+		)
+		sn = string(d.scratch.bytes())
+		if n, err = strconv.ParseFloat(sn, 64); err != nil {
+			return 0, err
+		}
+	}
+
+	d.back()
+	return n, nil
+}
+
+// array accept valid JSON array value
+func (d *Decoder) array() ([]interface{}, error) {
+	d.depth++
+
+	var (
+		c     byte
+		v     interface{}
+		err   error
+		array = make([]interface{}, 0)
+	)
+
+	// look ahead for ] - if the array is empty.
+	if c = d.skipSpaces(); c == ']' {
+		goto out
+	}
+	d.back()
+
+scan:
+	if v, err = d.emitAny(); err != nil {
+		goto out
+	}
+
+	if d.depth > d.emitDepth { // skip alloc for array if it won't be emitted
+		array = append(array, v)
+	}
+
+	// next token must be ',' or ']'
+	switch c = d.skipSpaces(); c {
+	case ',':
+		goto scan
+	case ']':
+		goto out
+	default:
+		err = d.mkError(ErrSyntax, "after array element")
+	}
+
+out:
+	d.depth--
+	return array, err
+}
+
+// object accept valid JSON array value
+func (d *Decoder) object() (map[string]interface{}, error) {
+	d.depth++
+
+	var (
+		c   byte
+		k   string
+		v   interface{}
+		err error
+		obj = make(map[string]interface{})
+	)
+
+	// look ahead for } - if the object has no keys.
+	if c = d.skipSpaces(); c == '}' {
+		goto out
+	}
+
+scan:
+	for {
+		// read string key
+		if c != '"' {
+			err = d.mkError(ErrSyntax, "looking for beginning of object key string")
+			break
+		}
+		if k, err = d.string(); err != nil {
+			break
+		}
+
+		// read colon before value
+		if c = d.skipSpaces(); c != ':' {
+			err = d.mkError(ErrSyntax, "after object key")
+			break
+		}
+
+		// read and assign value
+		if v, err = d.emitAny(); err != nil {
+			break
+		}
+
+		if d.depth > d.emitDepth { // skip alloc for obj if it won't be emitted
+			obj[k] = v
+		}
+
+		// next token must be ',' or '}'
+		switch c = d.skipSpaces(); c {
+		case '}':
+			goto out
+		case ',':
+			c = d.skipSpaces()
+			goto scan
+		default:
+			err = d.mkError(ErrSyntax, "after object key:value pair")
+		}
+	}
+
+out:
+	d.depth--
+	return obj, err
+}
+
+// returns the next char after white spaces
+func (d *Decoder) skipSpaces() byte {
+	for d.pos < d.end {
+		switch c := d.next(); c {
+		case '\n':
+			d.lineStart = d.pos
+			d.lineNo++
+			continue
+		case ' ', '\t', '\r':
+			continue
+		default:
+			return c
+		}
+	}
+	return 0
+}
+
+// create syntax errors at current position, with optional context
+func (d *Decoder) mkError(err *SyntaxError, context ...string) error {
+	if len(context) > 0 {
+		err.context = context[0]
+	}
+	err.atChar = d.cur()
+	err.pos[0] = d.lineNo + 1
+	err.pos[1] = d.pos - d.lineStart
+	return err
+}
