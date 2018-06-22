@@ -13,7 +13,8 @@ type MetaValue struct {
 	Value  interface{}
 }
 
-// Decoder is the object that holds the state of the decoding
+// Decoder wraps an io.Reader to provide incremental decoding of
+// JSON values
 type Decoder struct {
 	*scanner
 	depth     int
@@ -28,20 +29,28 @@ type Decoder struct {
 }
 
 // NewDecoder creates new Decoder from the provider io.Reader.
-// If docStream is true, Decoder will parse all top-level documents in the reader
 func NewDecoder(r io.Reader, emitDepth int) *Decoder {
 	d := &Decoder{
-		emitDepth: emitDepth,
 		scanner:   newScanner(r),
-		scratch:   &scratch{data: make([]byte, 128)},
-		metaCh:    make(chan *MetaValue),
+		emitDepth: emitDepth,
+		scratch:   &scratch{data: make([]byte, 1024)},
+		metaCh:    make(chan *MetaValue, 128),
 	}
-	go d.decode()
 	return d
 }
 
-func (d *Decoder) Stream() chan *MetaValue { return d.metaCh }
-func (d *Decoder) Err() error              { return d.err }
+// Stream begins decoding from the underlying reader and
+// returns a channel of all MetaValues at the specified emitDepth
+func (d *Decoder) Stream() chan *MetaValue {
+	go d.decode()
+	return d.metaCh
+}
+
+// Pos returns the number of bytes consumed from the underlying reader
+func (d *Decoder) Pos() int { return d.pos }
+
+// Err returns the most recent decoder error if any, or nil
+func (d *Decoder) Err() error { return d.err }
 
 // Decode parses the JSON-encoded data and returns an interface value
 func (d *Decoder) decode() {
