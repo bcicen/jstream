@@ -38,7 +38,7 @@ func newScanner(r io.Reader) *scanner {
 			if n == 0 {
 				switch err {
 				case io.EOF: // reader is exhausted
-					sr.end = rpos - 1
+					sr.end = rpos
 					close(sr.fillReady)
 					return
 				case nil: // no data and no error, retry fill
