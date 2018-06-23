@@ -144,10 +144,6 @@ func (d *Decoder) string() (string, error) {
 
 scan:
 	for {
-		if d.remaining() == 0 {
-			return "", d.mkError(ErrUnexpectedEOF)
-		}
-
 		switch {
 		case c == '"':
 			return string(d.scratch.bytes()), nil
@@ -159,6 +155,9 @@ scan:
 		// Coerce to well-formed UTF-8.
 		default:
 			d.scratch.add(c)
+			if d.remaining() == 0 {
+				return "", d.mkError(ErrSyntax, "in string literal")
+			}
 			c = d.next()
 		}
 	}
