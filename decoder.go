@@ -13,6 +13,11 @@ type MetaValue struct {
 	Value  interface{}
 }
 
+type KV struct {
+	Key   string
+	Value interface{}
+}
+
 // Decoder wraps an io.Reader to provide incremental decoding of
 // JSON values
 type Decoder struct {
@@ -40,7 +45,7 @@ func NewDecoder(r io.Reader, emitDepth int) *Decoder {
 }
 
 // Stream begins decoding from the underlying reader and
-// returns a channel of all MetaValues at the specified emitDepth
+// returns a channel streaming all MetaValues at the specified emitDepth
 func (d *Decoder) Stream() chan *MetaValue {
 	go d.decode()
 	return d.metaCh
@@ -360,16 +365,23 @@ func (d *Decoder) object() (map[string]interface{}, error) {
 		k   string
 		v   interface{}
 		err error
-		obj = make(map[string]interface{})
+		obj map[string]interface{}
 	)
 
-	// look ahead for } - if the object has no keys.
+	// skip allocating map if it will not be emitted
+	if d.depth > d.emitDepth {
+		obj = make(map[string]interface{})
+	}
+
+	// if the object has no keys
 	if c = d.skipSpaces(); c == '}' {
 		goto out
 	}
 
 scan:
 	for {
+		offset := d.pos - 1
+
 		// read string key
 		if c != '"' {
 			err = d.mkError(ErrSyntax, "looking for beginning of object key string")
@@ -385,13 +397,22 @@ scan:
 			break
 		}
 
-		// read and assign value
+		// read value
 		if v, err = d.emitAny(); err != nil {
 			break
 		}
 
-		if d.depth > d.emitDepth { // skip alloc for obj if it won't be emitted
+		if obj != nil {
 			obj[k] = v
+		}
+
+		if d.depth == d.emitDepth {
+			d.metaCh <- &MetaValue{
+				Offset: offset,
+				Length: d.pos - offset,
+				Depth:  d.depth,
+				Value:  KV{k, v},
+			}
 		}
 
 		// next token must be ',' or '}'
