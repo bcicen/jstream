@@ -6,6 +6,8 @@ import (
 	"unicode/utf16"
 )
 
+// MetaValue wraps a decoded interface value with the document
+// position and depth at which the value was parsed
 type MetaValue struct {
 	Offset int
 	Length int
@@ -13,6 +15,7 @@ type MetaValue struct {
 	Value  interface{}
 }
 
+// KV contains a key and value pair parsed from a decoded object
 type KV struct {
 	Key   string      `json:"key"`
 	Value interface{} `json:"value"`
