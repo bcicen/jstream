@@ -1,9 +1,13 @@
 # jstream
 
+[![GoDoc](https://godoc.org/github.com/bcicen/jstream?status.svg)](https://godoc.org/github.com/bcicen/jstream)
+
+
 `jstream` is a streaming JSON parser and value extraction library for Go.
 
-Unlike most JSON parsers, `jstream` is document position- and depth-aware, enabling the extraction of values at a specified depth, and eliminating the overhead of allocating encompassing arrays or objects; e.g:
+Unlike most JSON parsers, `jstream` is document position- and depth-aware -- this enables the extraction of values at a specified depth, eliminating the overhead of allocating encompassing arrays or objects; e.g:
 
+Using the below example document:
 ```json
 [
   {
@@ -17,7 +21,7 @@ Unlike most JSON parsers, `jstream` is document position- and depth-aware, enabl
 ]
 ```
 
-Using the above example document, we can choose to extract and act only the objects within the top-level array:
+we can choose to extract and act only the objects within the top-level array:
 ```go
 f, _ := os.Open("input.json")
 decoder := jstream.NewDecoder(f, 1) // extract JSON values at a depth level of 1
@@ -71,11 +75,13 @@ Opt | Description
 
 ## Benchmarks
 
-Obligatory benchmarks performed using two file sizes -- regular (1.6mb, 1000 objects) and large (128mb, 100000 objects)
+Obligatory benchmarks performed on files with arrays of objects, where the decoded objects are to be extracted.
 
-input size | lib | MB/s | alloc
+Two file sizes are used -- regular (1.6mb, 1000 objects) and large (128mb, 100000 objects)
+
+input size | lib | MB/s | Allocated
 --- | --- | --- | ---
 regular | standard | 97 | 3.6MB
 regular | jstream | 175 | 2.1MB
 large | standard | 92 | 305MB
-large | jstream | 404 | 69
+large | jstream | 404 | 69MB
