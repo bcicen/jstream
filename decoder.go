@@ -457,7 +457,7 @@ func (d *Decoder) skipSpaces() byte {
 }
 
 // create syntax errors at current position, with optional context
-func (d *Decoder) mkError(err *SyntaxError, context ...string) error {
+func (d *Decoder) mkError(err SyntaxError, context ...string) error {
 	if len(context) > 0 {
 		err.context = context[0]
 	}

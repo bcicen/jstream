@@ -6,8 +6,8 @@ import (
 
 const (
 	chunk   = 65535 // ~64k
-	MaxUint = ^uint(0)
-	MaxInt  = int(MaxUint >> 1)
+	maxUint = ^uint(0)
+	maxInt  = int(maxUint >> 1)
 )
 
 type scanner struct {
@@ -23,7 +23,7 @@ type scanner struct {
 
 func newScanner(r io.Reader) *scanner {
 	sr := &scanner{
-		end:       MaxInt,
+		end:       maxInt,
 		fillReq:   make(chan struct{}),
 		fillReady: make(chan int),
 	}
@@ -62,8 +62,8 @@ func newScanner(r io.Reader) *scanner {
 // if EOF for the underlying reader has not yet been found,
 // maximum possible integer value will be returned
 func (s *scanner) remaining() int {
-	if s.end == MaxInt {
-		return MaxInt
+	if s.end == maxInt {
+		return maxInt
 	}
 	return s.end - s.pos
 }
@@ -85,7 +85,7 @@ func (s *scanner) next() byte {
 		s.ipos = 1                     // move to beginning of internal buffer
 
 		// request next fill to be prepared
-		if s.end == MaxInt {
+		if s.end == maxInt {
 			s.fillReq <- struct{}{}
 		}
 	}

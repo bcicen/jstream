@@ -7,20 +7,20 @@ import (
 
 // Predefined errors
 var (
-	ErrSyntax        = &SyntaxError{msg: "invalid character"}
-	ErrUnexpectedEOF = &SyntaxError{msg: "unexpected end of JSON input"}
+	ErrSyntax        = SyntaxError{msg: "invalid character"}
+	ErrUnexpectedEOF = SyntaxError{msg: "unexpected end of JSON input"}
 )
 
-type ErrPos [2]int // line number, byte offset where error occurred
+type errPos [2]int // line number, byte offset where error occurred
 
 type SyntaxError struct {
 	msg     string // description of error
 	context string // additional error context
-	pos     ErrPos
+	pos     errPos
 	atChar  byte
 }
 
-func (e *SyntaxError) Error() string {
+func (e SyntaxError) Error() string {
 	loc := fmt.Sprintf("%s [%d,%d]", quoteChar(e.atChar), e.pos[0], e.pos[1])
 	return fmt.Sprintf("%s %s: %s", e.msg, e.context, loc)
 }
