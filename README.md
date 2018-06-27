@@ -28,7 +28,7 @@ we can choose to extract and act only the objects within the top-level array:
 f, _ := os.Open("input.json")
 decoder := jstream.NewDecoder(f, 1) // extract JSON values at a depth level of 1
 for mv := range decoder.Stream() {
-	fmt.Printf("%v\n ", mv.Value)
+  fmt.Printf("%v\n ", mv.Value)
 }
 ```
 
