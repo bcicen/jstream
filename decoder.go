@@ -14,8 +14,8 @@ type MetaValue struct {
 }
 
 type KV struct {
-	Key   string
-	Value interface{}
+	Key   string      `json:"key"`
+	Value interface{} `json:"value"`
 }
 
 // Decoder wraps an io.Reader to provide incremental decoding of
@@ -33,7 +33,9 @@ type Decoder struct {
 	lineStart int
 }
 
-// NewDecoder creates new Decoder from the provider io.Reader.
+// NewDecoder creates new Decoder to read JSON values at the provided
+// emitDepth from the provider io.Reader.
+// If emitDepth is < 0, values at every depth will be emitted.
 func NewDecoder(r io.Reader, emitDepth int) *Decoder {
 	d := &Decoder{
 		scanner:   newScanner(r),
@@ -44,9 +46,9 @@ func NewDecoder(r io.Reader, emitDepth int) *Decoder {
 	return d
 }
 
-// Stream begins decoding from the underlying reader and
-// returns a channel streaming all MetaValues at the specified emitDepth
-func (d *Decoder) Stream() chan *MetaValue {
+// Stream begins decoding from the underlying reader and returns a
+// channel streaming MetaValues for JSON values at the configured emitDepth.
+func (d *Decoder) Stream(emitDepth int) chan *MetaValue {
 	go d.decode()
 	return d.metaCh
 }
@@ -60,23 +62,24 @@ func (d *Decoder) Err() error { return d.err }
 // Decode parses the JSON-encoded data and returns an interface value
 func (d *Decoder) decode() {
 	defer close(d.metaCh)
+	d.skipSpaces()
 	for d.pos < d.end {
 		_, err := d.emitAny()
 		if err != nil {
 			d.err = err
 			break
 		}
+		d.skipSpaces()
 	}
 }
 
 func (d *Decoder) emitAny() (interface{}, error) {
-	d.skipSpaces()
 	if d.pos >= d.end {
-		return nil, nil
+		return nil, d.mkError(ErrUnexpectedEOF)
 	}
 	offset := d.pos - 1
 	i, err := d.any()
-	if d.depth == d.emitDepth {
+	if d.depth == d.emitDepth || d.emitDepth < 0 {
 		d.metaCh <- &MetaValue{
 			Offset: offset,
 			Length: d.pos - offset,
@@ -330,7 +333,6 @@ func (d *Decoder) array() ([]interface{}, error) {
 	if c = d.skipSpaces(); c == ']' {
 		goto out
 	}
-	d.back()
 
 scan:
 	if v, err = d.emitAny(); err != nil {
@@ -344,6 +346,7 @@ scan:
 	// next token must be ',' or ']'
 	switch c = d.skipSpaces(); c {
 	case ',':
+		d.skipSpaces()
 		goto scan
 	case ']':
 		goto out
@@ -398,6 +401,7 @@ scan:
 		}
 
 		// read value
+		d.skipSpaces()
 		if v, err = d.emitAny(); err != nil {
 			break
 		}
@@ -406,7 +410,7 @@ scan:
 			obj[k] = v
 		}
 
-		if d.depth == d.emitDepth {
+		if d.depth == d.emitDepth || d.emitDepth < 0 {
 			d.metaCh <- &MetaValue{
 				Offset: offset,
 				Length: d.pos - offset,

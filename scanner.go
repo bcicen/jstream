@@ -73,7 +73,7 @@ func (s *scanner) cur() byte { return s.buf[s.ipos] }
 
 // read next byte
 func (s *scanner) next() byte {
-	if s.pos == s.end {
+	if s.pos >= s.end {
 		return byte(0)
 	}
 	s.ipos++
