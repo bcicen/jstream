@@ -47,7 +47,7 @@ func NewDecoder(r io.Reader, emitDepth int) *Decoder {
 }
 
 // Stream begins decoding from the underlying reader and returns a
-// channel streaming MetaValues for JSON values at the configured emitDepth.
+// streaming MetaValue channel for JSON values at the configured emitDepth.
 func (d *Decoder) Stream() chan *MetaValue {
 	go d.decode()
 	return d.metaCh

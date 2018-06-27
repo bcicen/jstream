@@ -6,10 +6,6 @@ import (
 	"fmt"
 	"os"
 
-	_ "expvar"
-	"net/http"
-	_ "net/http/pprof"
-
 	"github.com/bcicen/jstream"
 )
 
@@ -40,7 +36,6 @@ func printVal(mv *jstream.MetaValue) {
 		label = "float  "
 	case jstream.KV:
 		label = "kv     "
-		//s = fmt.Sprintf("%s:%v", val.Key, val.Value)
 	case string:
 		label = "string "
 	case map[string]interface{}:
@@ -62,7 +57,9 @@ func main() {
 		os.Exit(0)
 	}
 
-	go http.ListenAndServe(":1234", nil)
+	if *verboseFlag {
+		fmt.Println("depth\tstart\tend\ttype   | value\n")
+	}
 
 	decoder := jstream.NewDecoder(os.Stdin, *depthFlag)
 	for mv := range decoder.Stream() {
