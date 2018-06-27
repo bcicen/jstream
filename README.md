@@ -1,4 +1,6 @@
-# jstream
+<p align="center"><img width="350px" src="jstream.png" alt="jstream"/></p>
+
+#
 
 [![GoDoc](https://godoc.org/github.com/bcicen/jstream?status.svg)](https://godoc.org/github.com/bcicen/jstream)
 
