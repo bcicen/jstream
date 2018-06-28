@@ -10,18 +10,7 @@
 Unlike most JSON parsers, `jstream` is document position- and depth-aware -- this enables the extraction of values at a specified depth, eliminating the overhead of allocating encompassing arrays or objects; e.g:
 
 Using the below example document:
-```json
-[
-  {
-    "desc": "RGB",
-    "colors": [ "red", "green", "blue" ]
-  },
-  {
-    "desc": "CMYK",
-    "colors": [ "cyan", "magenta", "yellow", "black" ]
-  }
-]
-```
+<img width="85%" src="https://bradley.codes/static/img/jstream-levels.gif" alt="jstream"/>
 
 we can choose to extract and act only the objects within the top-level array:
 ```go
