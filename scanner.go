@@ -5,7 +5,7 @@ import (
 )
 
 const (
-	chunk   = 65535 // ~64k
+	chunk   = 1023 // ~1k
 	maxUint = ^uint(0)
 	maxInt  = int(maxUint >> 1)
 )
