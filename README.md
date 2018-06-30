@@ -76,3 +76,6 @@ regular | standard | 97 | 3.6MB
 regular | jstream | 175 | 2.1MB
 large | standard | 92 | 305MB
 large | jstream | 404 | 69MB
+
+In a real world scenario, including initialization and reader overhead from varying blob sizes, performance can be expected as below:
+<img src="https://bradley.codes/static/img/bench.svg" alt="jstream"/>
