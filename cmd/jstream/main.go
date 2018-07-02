@@ -64,7 +64,7 @@ func main() {
 
 	decoder := jstream.NewDecoder(os.Stdin, *depthFlag)
 	if *kvFlag {
-		decoder.EmitKV()
+		decoder = decoder.EmitKV()
 	}
 	for mv := range decoder.Stream() {
 		printVal(mv)

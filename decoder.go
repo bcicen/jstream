@@ -53,8 +53,9 @@ func NewDecoder(r io.Reader, emitDepth int) *Decoder {
 // EmitKV enables emitting a jstream.KV struct when the items(s) parsed
 // at configured emit depth are within a JSON object. By default, only
 // the object values are emitted.
-func (d *Decoder) EmitKV() {
+func (d *Decoder) EmitKV() *Decoder {
 	d.emitKV = true
+	return d
 }
 
 // Stream begins decoding from the underlying reader and returns a
