@@ -38,6 +38,18 @@ yellow
 black
 ```
 
+optionally, kev:value pairs can be emitted as an individual struct:
+```go
+decoder := jstream.NewDecoder(f, 2).EmitKV() // enable KV streaming at a depth level of 2
+```
+
+```
+jstream.KV{desc RGB}
+jstream.KV{colors [red green blue]}
+jstream.KV{desc CMYK}
+jstream.KV{colors [cyan magenta yellow black]}
+```
+
 ## Installing 
 
 ```bash
