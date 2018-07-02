@@ -27,6 +27,7 @@ type Decoder struct {
 	*scanner
 	depth     int
 	emitDepth int
+	emitKV    bool
 	scratch   *scratch
 	metaCh    chan *MetaValue
 	err       error
@@ -47,6 +48,13 @@ func NewDecoder(r io.Reader, emitDepth int) *Decoder {
 		metaCh:    make(chan *MetaValue, 128),
 	}
 	return d
+}
+
+// EmitKV enables emitting a jstream.KV struct when the items(s) parsed
+// at configured emit depth are within a JSON object. By default, only
+// the object values are emitted.
+func (d *Decoder) EmitKV() {
+	d.emitKV = true
 }
 
 // Stream begins decoding from the underlying reader and returns a
@@ -405,21 +413,26 @@ scan:
 
 		// read value
 		d.skipSpaces()
-		if v, err = d.emitAny(); err != nil {
-			break
+		if d.emitKV {
+			if v, err = d.any(); err != nil {
+				break
+			}
+			if d.depth == d.emitDepth || d.emitDepth < 0 {
+				d.metaCh <- &MetaValue{
+					Offset: offset,
+					Length: d.pos - offset,
+					Depth:  d.depth,
+					Value:  KV{k, v},
+				}
+			}
+		} else {
+			if v, err = d.emitAny(); err != nil {
+				break
+			}
 		}
 
 		if obj != nil {
 			obj[k] = v
-		}
-
-		if d.depth == d.emitDepth || d.emitDepth < 0 {
-			d.metaCh <- &MetaValue{
-				Offset: offset,
-				Length: d.pos - offset,
-				Depth:  d.depth,
-				Value:  KV{k, v},
-			}
 		}
 
 		// next token must be ',' or '}'

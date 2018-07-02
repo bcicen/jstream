@@ -11,6 +11,7 @@ import (
 
 var (
 	depthFlag   = flag.Int("d", 0, "emit values at depth <int>")
+	kvFlag      = flag.Bool("kv", false, "output key value pairs. default behavior is to emit only JSON object values.")
 	verboseFlag = flag.Bool("v", false, "output depth and offset details for each value")
 	helpFlag    = flag.Bool("h", false, "display this help dialog")
 )
@@ -62,6 +63,9 @@ func main() {
 	}
 
 	decoder := jstream.NewDecoder(os.Stdin, *depthFlag)
+	if *kvFlag {
+		decoder.EmitKV()
+	}
 	for mv := range decoder.Stream() {
 		printVal(mv)
 	}
