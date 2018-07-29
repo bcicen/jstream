@@ -334,7 +334,7 @@ func (d *Decoder) number() (float64, error) {
 			}
 			d.scratch.add(c)
 		}
-		for c = d.next(); '0' <= c && c <= '9'; {
+		for ; c >= '0' && c <= '9'; c = d.next() {
 			d.scratch.add(c)
 		}
 	}
