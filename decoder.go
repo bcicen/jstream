@@ -25,12 +25,14 @@ type KV struct {
 // JSON values
 type Decoder struct {
 	*scanner
-	depth     int
-	emitDepth int
-	emitKV    bool
-	scratch   *scratch
-	metaCh    chan *MetaValue
-	err       error
+	emitDepth     int
+	emitKV        bool
+	emitRecursive bool
+
+	depth   int
+	scratch *scratch
+	metaCh  chan *MetaValue
+	err     error
 
 	// follow line position to add context to errors
 	lineNo    int
@@ -47,6 +49,10 @@ func NewDecoder(r io.Reader, emitDepth int) *Decoder {
 		scratch:   &scratch{data: make([]byte, 1024)},
 		metaCh:    make(chan *MetaValue, 128),
 	}
+	if emitDepth < 0 {
+		d.emitDepth = 0
+		d.emitRecursive = true
+	}
 	return d
 }
 
@@ -55,6 +61,15 @@ func NewDecoder(r io.Reader, emitDepth int) *Decoder {
 // the object values are emitted.
 func (d *Decoder) EmitKV() *Decoder {
 	d.emitKV = true
+	return d
+}
+
+// Recursive enables emitting all values at a depth higher than the
+// configured emit depth; e.g. if an array is found at emit depth, all
+// values within the array are emitted to the stream, then the array
+// containing those values is emitted.
+func (d *Decoder) Recursive() *Decoder {
+	d.emitRecursive = true
 	return d
 }
 
@@ -91,7 +106,7 @@ func (d *Decoder) emitAny() (interface{}, error) {
 	}
 	offset := d.pos - 1
 	i, err := d.any()
-	if d.depth == d.emitDepth || d.emitDepth < 0 {
+	if d.willEmit() {
 		d.metaCh <- &MetaValue{
 			Offset: offset,
 			Length: d.pos - offset,
@@ -100,6 +115,15 @@ func (d *Decoder) emitAny() (interface{}, error) {
 		}
 	}
 	return i, err
+}
+
+// return whether, at the current depth, the value being decoded will
+// be emitted to stream
+func (d *Decoder) willEmit() bool {
+	if d.emitRecursive {
+		return d.depth >= d.emitDepth
+	}
+	return d.depth == d.emitDepth
 }
 
 // any used to decode any valid JSON value, and returns an
@@ -418,7 +442,7 @@ scan:
 			if v, err = d.any(); err != nil {
 				break
 			}
-			if d.depth == d.emitDepth || d.emitDepth < 0 {
+			if d.willEmit() {
 				d.metaCh <- &MetaValue{
 					Offset: offset,
 					Length: d.pos - offset,

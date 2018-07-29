@@ -139,10 +139,34 @@ func TestDecoderMultiDoc(t *testing.T) {
 	if err := decoder.Err(); err != nil {
 		t.Fatalf("decoder error: %s", err)
 	}
-	if kvcounter != 15 {
-		t.Fatalf("expected 15 keyvalue items, got %d", counter)
+	if kvcounter != 0 {
+		t.Fatalf("expected 0 keyvalue items, got %d", kvcounter)
 	}
 	if counter != 15 {
 		t.Fatalf("expected 15 items, got %d", counter)
+	}
+
+	// test at depth level 1 w/ emitKV
+	counter = 0
+	kvcounter = 0
+	decoder = NewDecoder(mkReader(body), 1).EmitKV()
+
+	for mv = range decoder.Stream() {
+		switch mv.Value.(type) {
+		case KV:
+			kvcounter++
+		default:
+			counter++
+		}
+		t.Logf("depth=%d offset=%d len=%d (%v)", mv.Depth, mv.Offset, mv.Length, mv.Value)
+	}
+	if err := decoder.Err(); err != nil {
+		t.Fatalf("decoder error: %s", err)
+	}
+	if kvcounter != 15 {
+		t.Fatalf("expected 15 keyvalue items, got %d", kvcounter)
+	}
+	if counter != 0 {
+		t.Fatalf("expected 0 items, got %d", counter)
 	}
 }
