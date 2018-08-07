@@ -3,7 +3,6 @@ package jstream
 import (
 	"bufio"
 	"bytes"
-	"fmt"
 	"io"
 	"testing"
 )
@@ -25,7 +24,6 @@ func TestScanner(t *testing.T) {
 		if c != data[i] {
 			t.Fatalf("expected %s, got %s", string(data[i]), string(c))
 		}
-		fmt.Printf("pos=%d remaining=%d (%s)\n", i, r.Len(), string(c))
 		t.Logf("pos=%d remaining=%d (%s)", i, r.Len(), string(c))
 		i++
 	}
