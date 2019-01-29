@@ -6,13 +6,28 @@ import (
 	"unicode/utf16"
 )
 
+// ValueType - defines the type of each JSON value
+type ValueType int
+
+// Different types of JSON value
+const (
+	Unknown ValueType = iota
+	Null
+	String
+	Number
+	Boolean
+	Array
+	Object
+)
+
 // MetaValue wraps a decoded interface value with the document
 // position and depth at which the value was parsed
 type MetaValue struct {
-	Offset int
-	Length int
-	Depth  int
-	Value  interface{}
+	Offset    int
+	Length    int
+	Depth     int
+	Value     interface{}
+	ValueType ValueType
 }
 
 // KV contains a key and value pair parsed from a decoded object
@@ -105,13 +120,14 @@ func (d *Decoder) emitAny() (interface{}, error) {
 		return nil, d.mkError(ErrUnexpectedEOF)
 	}
 	offset := d.pos - 1
-	i, err := d.any()
+	i, t, err := d.any()
 	if d.willEmit() {
 		d.metaCh <- &MetaValue{
-			Offset: offset,
-			Length: d.pos - offset,
-			Depth:  d.depth,
-			Value:  i,
+			Offset:    offset,
+			Length:    d.pos - offset,
+			Depth:     d.depth,
+			Value:     i,
+			ValueType: t,
 		}
 	}
 	return i, err
@@ -128,53 +144,57 @@ func (d *Decoder) willEmit() bool {
 
 // any used to decode any valid JSON value, and returns an
 // interface{} that holds the actual data
-func (d *Decoder) any() (interface{}, error) {
+func (d *Decoder) any() (interface{}, ValueType, error) {
 	c := d.cur()
 
 	switch c {
 	case '"':
-		return d.string()
+		i, err := d.string()
+		return i, String, err
 	case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
-		return d.number()
+		i, err := d.number()
+		return i, Number, err
 	case '-':
 		if c = d.next(); c < '0' && c > '9' {
-			return nil, d.mkError(ErrSyntax, "in negative numeric literal")
+			return nil, Unknown, d.mkError(ErrSyntax, "in negative numeric literal")
 		}
 		n, err := d.number()
 		if err != nil {
-			return nil, err
+			return nil, Unknown, err
 		}
-		return -n, nil
+		return -n, Number, nil
 	case 'f':
 		if d.remaining() < 4 {
-			return nil, d.mkError(ErrUnexpectedEOF)
+			return nil, Unknown, d.mkError(ErrUnexpectedEOF)
 		}
 		if d.next() == 'a' && d.next() == 'l' && d.next() == 's' && d.next() == 'e' {
-			return false, nil
+			return false, Boolean, nil
 		}
-		return nil, d.mkError(ErrSyntax, "in literal false")
+		return nil, Unknown, d.mkError(ErrSyntax, "in literal false")
 	case 't':
 		if d.remaining() < 3 {
-			return nil, d.mkError(ErrUnexpectedEOF)
+			return nil, Unknown, d.mkError(ErrUnexpectedEOF)
 		}
 		if d.next() == 'r' && d.next() == 'u' && d.next() == 'e' {
-			return true, nil
+			return true, Boolean, nil
 		}
-		return nil, d.mkError(ErrSyntax, "in literal true")
+		return nil, Unknown, d.mkError(ErrSyntax, "in literal true")
 	case 'n':
 		if d.remaining() < 3 {
-			return nil, d.mkError(ErrUnexpectedEOF)
+			return nil, Unknown, d.mkError(ErrUnexpectedEOF)
 		}
 		if d.next() == 'u' && d.next() == 'l' && d.next() == 'l' {
-			return nil, nil
+			return nil, Null, nil
 		}
-		return nil, d.mkError(ErrSyntax, "in literal null")
+		return nil, Unknown, d.mkError(ErrSyntax, "in literal null")
 	case '[':
-		return d.array()
+		i, err := d.array()
+		return i, Array, err
 	case '{':
-		return d.object()
+		i, err := d.object()
+		return i, Object, err
 	default:
-		return nil, d.mkError(ErrSyntax, "looking for beginning of value")
+		return nil, Unknown, d.mkError(ErrSyntax, "looking for beginning of value")
 	}
 }
 
@@ -403,6 +423,7 @@ func (d *Decoder) object() (map[string]interface{}, error) {
 		c   byte
 		k   string
 		v   interface{}
+		t   ValueType
 		err error
 		obj map[string]interface{}
 	)
@@ -439,15 +460,16 @@ scan:
 		// read value
 		d.skipSpaces()
 		if d.emitKV {
-			if v, err = d.any(); err != nil {
+			if v, t, err = d.any(); err != nil {
 				break
 			}
 			if d.willEmit() {
 				d.metaCh <- &MetaValue{
-					Offset: offset,
-					Length: d.pos - offset,
-					Depth:  d.depth,
-					Value:  KV{k, v},
+					Offset:    offset,
+					Length:    d.pos - offset,
+					Depth:     d.depth,
+					Value:     KV{k, v},
+					ValueType: t,
 				}
 			}
 		} else {
