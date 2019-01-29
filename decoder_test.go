@@ -73,20 +73,53 @@ func TestDecoderFlat(t *testing.T) {
   0, null, false,
   1, 2.5
 ]`
-		expected = []interface{}{
-			"1st test string",
-			"Roberto*Maestro",
-			"Charles",
-			0.0, nil, false,
-			1.0, 2.5,
+		expected = []struct {
+			Value     interface{}
+			ValueType ValueType
+		}{
+			{
+				"1st test string",
+				String,
+			},
+			{
+				"Roberto*Maestro",
+				String,
+			},
+			{
+				"Charles",
+				String,
+			},
+			{
+				0.0,
+				Number,
+			},
+			{
+				nil,
+				Null,
+			},
+			{
+				false,
+				Boolean,
+			},
+			{
+				1.0,
+				Number,
+			},
+			{
+				2.5,
+				Number,
+			},
 		}
 	)
 
 	decoder := NewDecoder(mkReader(body), 1)
 
 	for mv = range decoder.Stream() {
-		if mv.Value != expected[counter] {
+		if mv.Value != expected[counter].Value {
 			t.Fatalf("got %v, expected: %v", mv.Value, expected[counter])
+		}
+		if mv.ValueType != expected[counter].ValueType {
+			t.Fatalf("got %v value type, expected: %v value type", mv.ValueType, expected[counter].ValueType)
 		}
 		counter++
 		t.Logf("depth=%d offset=%d len=%d (%v)", mv.Depth, mv.Offset, mv.Length, mv.Value)
@@ -112,6 +145,9 @@ func TestDecoderMultiDoc(t *testing.T) {
 	decoder := NewDecoder(mkReader(body), 0)
 
 	for mv = range decoder.Stream() {
+		if mv.ValueType != Object {
+			t.Fatalf("got %v value type, expected: Object value type", mv.ValueType)
+		}
 		counter++
 		t.Logf("depth=%d offset=%d len=%d (%v)", mv.Depth, mv.Offset, mv.Length, mv.Value)
 	}
