@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"io"
+	"sync/atomic"
 	"testing"
 )
 
@@ -19,7 +20,7 @@ func TestScanner(t *testing.T) {
 	var i int
 	r := bytes.NewReader(data)
 	scanner := newScanner(r)
-	for scanner.pos < scanner.end {
+	for scanner.pos < atomic.LoadInt64(&scanner.end) {
 		c := scanner.next()
 		if c != data[i] {
 			t.Fatalf("expected %s, got %s", string(data[i]), string(c))
