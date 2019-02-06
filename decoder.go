@@ -3,6 +3,7 @@ package jstream
 import (
 	"io"
 	"strconv"
+	"sync/atomic"
 	"unicode/utf16"
 )
 
@@ -51,7 +52,7 @@ type Decoder struct {
 
 	// follow line position to add context to errors
 	lineNo    int
-	lineStart int
+	lineStart int64
 }
 
 // NewDecoder creates new Decoder to read JSON values at the provided
@@ -96,7 +97,7 @@ func (d *Decoder) Stream() chan *MetaValue {
 }
 
 // Pos returns the number of bytes consumed from the underlying reader
-func (d *Decoder) Pos() int { return d.pos }
+func (d *Decoder) Pos() int { return int(d.pos) }
 
 // Err returns the most recent decoder error if any, or nil
 func (d *Decoder) Err() error { return d.err }
@@ -105,7 +106,7 @@ func (d *Decoder) Err() error { return d.err }
 func (d *Decoder) decode() {
 	defer close(d.metaCh)
 	d.skipSpaces()
-	for d.pos < d.end {
+	for d.pos < atomic.LoadInt64(&d.end) {
 		_, err := d.emitAny()
 		if err != nil {
 			d.err = err
@@ -116,15 +117,15 @@ func (d *Decoder) decode() {
 }
 
 func (d *Decoder) emitAny() (interface{}, error) {
-	if d.pos >= d.end {
+	if d.pos >= atomic.LoadInt64(&d.end) {
 		return nil, d.mkError(ErrUnexpectedEOF)
 	}
 	offset := d.pos - 1
 	i, t, err := d.any()
 	if d.willEmit() {
 		d.metaCh <- &MetaValue{
-			Offset:    offset,
-			Length:    d.pos - offset,
+			Offset:    int(offset),
+			Length:    int(d.pos - offset),
 			Depth:     d.depth,
 			Value:     i,
 			ValueType: t,
@@ -465,8 +466,8 @@ scan:
 			}
 			if d.willEmit() {
 				d.metaCh <- &MetaValue{
-					Offset:    offset,
-					Length:    d.pos - offset,
+					Offset:    int(offset),
+					Length:    int(d.pos - offset),
 					Depth:     d.depth,
 					Value:     KV{k, v},
 					ValueType: t,
@@ -501,7 +502,7 @@ out:
 
 // returns the next char after white spaces
 func (d *Decoder) skipSpaces() byte {
-	for d.pos < d.end {
+	for d.pos < atomic.LoadInt64(&d.end) {
 		switch c := d.next(); c {
 		case '\n':
 			d.lineStart = d.pos
@@ -523,6 +524,6 @@ func (d *Decoder) mkError(err SyntaxError, context ...string) error {
 	}
 	err.atChar = d.cur()
 	err.pos[0] = d.lineNo + 1
-	err.pos[1] = d.pos - d.lineStart
+	err.pos[1] = int(d.pos - d.lineStart)
 	return err
 }
