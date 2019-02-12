@@ -1,6 +1,8 @@
 package jstream
 
 import (
+	"bytes"
+	"encoding/json"
 	"io"
 	"strconv"
 	"sync/atomic"
@@ -37,6 +39,29 @@ type KV struct {
 	Value interface{} `json:"value"`
 }
 
+// KVS - represents key values in an JSON object
+type KVS []KV
+
+// MarshalJSON - implements converting a KVS datastructure into a JSON
+// object with multiple keys and values.
+func (kvs KVS) MarshalJSON() ([]byte, error) {
+	b := new(bytes.Buffer)
+	b.Write([]byte("{"))
+	for i, kv := range kvs {
+		b.Write([]byte("\"" + kv.Key + "\"" + ":"))
+		valBuf, err := json.Marshal(kv.Value)
+		if err != nil {
+			return nil, err
+		}
+		b.Write(valBuf)
+		if i < len(kvs)-1 {
+			b.Write([]byte(","))
+		}
+	}
+	b.Write([]byte("}"))
+	return b.Bytes(), nil
+}
+
 // Decoder wraps an io.Reader to provide incremental decoding of
 // JSON values
 type Decoder struct {
@@ -44,6 +69,7 @@ type Decoder struct {
 	emitDepth     int
 	emitKV        bool
 	emitRecursive bool
+	objectAsKVS   bool
 
 	depth   int
 	scratch *scratch
@@ -69,6 +95,15 @@ func NewDecoder(r io.Reader, emitDepth int) *Decoder {
 		d.emitDepth = 0
 		d.emitRecursive = true
 	}
+	return d
+}
+
+// ObjectAsKVS - by default JSON returns map[string]interface{} this
+// is usually fine in most cases, but when you need to preserve the
+// input order its not a right data structure. To preserve input
+// order please use this option.
+func (d *Decoder) ObjectAsKVS() *Decoder {
+	d.objectAsKVS = true
 	return d
 }
 
@@ -192,7 +227,13 @@ func (d *Decoder) any() (interface{}, ValueType, error) {
 		i, err := d.array()
 		return i, Array, err
 	case '{':
-		i, err := d.object()
+		var i interface{}
+		var err error
+		if d.objectAsKVS {
+			i, err = d.objectOrdered()
+		} else {
+			i, err = d.object()
+		}
 		return i, Object, err
 	default:
 		return nil, Unknown, d.mkError(ErrSyntax, "looking for beginning of value")
@@ -481,6 +522,90 @@ scan:
 
 		if obj != nil {
 			obj[k] = v
+		}
+
+		// next token must be ',' or '}'
+		switch c = d.skipSpaces(); c {
+		case '}':
+			goto out
+		case ',':
+			c = d.skipSpaces()
+			goto scan
+		default:
+			err = d.mkError(ErrSyntax, "after object key:value pair")
+		}
+	}
+
+out:
+	d.depth--
+	return obj, err
+}
+
+// object (ordered) accept valid JSON array value
+func (d *Decoder) objectOrdered() (KVS, error) {
+	d.depth++
+
+	var (
+		c   byte
+		k   string
+		v   interface{}
+		t   ValueType
+		err error
+		obj KVS
+	)
+
+	// skip allocating map if it will not be emitted
+	if d.depth > d.emitDepth {
+		obj = make(KVS, 0)
+	}
+
+	// if the object has no keys
+	if c = d.skipSpaces(); c == '}' {
+		goto out
+	}
+
+scan:
+	for {
+		offset := d.pos - 1
+
+		// read string key
+		if c != '"' {
+			err = d.mkError(ErrSyntax, "looking for beginning of object key string")
+			break
+		}
+		if k, err = d.string(); err != nil {
+			break
+		}
+
+		// read colon before value
+		if c = d.skipSpaces(); c != ':' {
+			err = d.mkError(ErrSyntax, "after object key")
+			break
+		}
+
+		// read value
+		d.skipSpaces()
+		if d.emitKV {
+			if v, t, err = d.any(); err != nil {
+				break
+			}
+			if d.willEmit() {
+				d.metaCh <- &MetaValue{
+					Offset:    int(offset),
+					Length:    int(d.pos - offset),
+					Depth:     d.depth,
+					Value:     KV{k, v},
+					ValueType: t,
+				}
+			}
+		} else {
+			if v, err = d.emitAny(); err != nil {
+				break
+			}
+		}
+
+		if obj != nil {
+			obj = append(obj, KV{k, v})
 		}
 
 		// next token must be ',' or '}'
