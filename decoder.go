@@ -533,6 +533,7 @@ scan:
 			goto scan
 		default:
 			err = d.mkError(ErrSyntax, "after object key:value pair")
+			goto out
 		}
 	}
 
@@ -617,6 +618,7 @@ scan:
 			goto scan
 		default:
 			err = d.mkError(ErrSyntax, "after object key:value pair")
+			goto out
 		}
 	}
 
