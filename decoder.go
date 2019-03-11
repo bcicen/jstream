@@ -35,8 +35,9 @@ type MetaValue struct {
 
 // KV contains a key and value pair parsed from a decoded object
 type KV struct {
-	Key   string      `json:"key"`
-	Value interface{} `json:"value"`
+	Key       string      `json:"key"`
+	Value     interface{} `json:"value"`
+	ValueType ValueType   `json:"type"`
 }
 
 // KVS - represents key values in an JSON object
@@ -142,7 +143,7 @@ func (d *Decoder) decode() {
 	defer close(d.metaCh)
 	d.skipSpaces()
 	for d.pos < atomic.LoadInt64(&d.end) {
-		_, err := d.emitAny()
+		_, _, err := d.emitAny()
 		if err != nil {
 			d.err = err
 			break
@@ -151,9 +152,9 @@ func (d *Decoder) decode() {
 	}
 }
 
-func (d *Decoder) emitAny() (interface{}, error) {
+func (d *Decoder) emitAny() (interface{}, ValueType, error) {
 	if d.pos >= atomic.LoadInt64(&d.end) {
-		return nil, d.mkError(ErrUnexpectedEOF)
+		return nil, Unknown, d.mkError(ErrUnexpectedEOF)
 	}
 	offset := d.pos - 1
 	i, t, err := d.any()
@@ -166,7 +167,7 @@ func (d *Decoder) emitAny() (interface{}, error) {
 			ValueType: t,
 		}
 	}
-	return i, err
+	return i, t, err
 }
 
 // return whether, at the current depth, the value being decoded will
@@ -433,7 +434,7 @@ func (d *Decoder) array() ([]interface{}, error) {
 	}
 
 scan:
-	if v, err = d.emitAny(); err != nil {
+	if v, _, err = d.emitAny(); err != nil {
 		goto out
 	}
 
@@ -510,12 +511,12 @@ scan:
 					Offset:    int(offset),
 					Length:    int(d.pos - offset),
 					Depth:     d.depth,
-					Value:     KV{k, v},
+					Value:     KV{k, v, t},
 					ValueType: t,
 				}
 			}
 		} else {
-			if v, err = d.emitAny(); err != nil {
+			if v, _, err = d.emitAny(); err != nil {
 				break
 			}
 		}
@@ -595,18 +596,18 @@ scan:
 					Offset:    int(offset),
 					Length:    int(d.pos - offset),
 					Depth:     d.depth,
-					Value:     KV{k, v},
+					Value:     KV{k, v, t},
 					ValueType: t,
 				}
 			}
 		} else {
-			if v, err = d.emitAny(); err != nil {
+			if v, t, err = d.emitAny(); err != nil {
 				break
 			}
 		}
 
 		if obj != nil {
-			obj = append(obj, KV{k, v})
+			obj = append(obj, KV{k, v, t})
 		}
 
 		// next token must be ',' or '}'
