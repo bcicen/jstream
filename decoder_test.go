@@ -7,6 +7,27 @@ import (
 
 func mkReader(s string) *bytes.Reader { return bytes.NewReader([]byte(s)) }
 
+func TestDecoderSkipInvalidJSON(t *testing.T) {
+	var (
+		counter int
+		mv      *MetaValue
+		body    = `{"id":0,"key":"KAWJMGCD"}
+{"id":950202005997,"key":"XNBQXYHX"}
+{"id":031291194748,"key":"EWARYWJJ"}
+{"id":131291194748,"key":"EWARYWJJ"}`
+	)
+
+	decoder := NewDecoder(mkReader(body), 0).ObjectAsKVS().SkipInvalidJSON()
+	for mv = range decoder.Stream() {
+		counter++
+		t.Logf("depth=%d offset=%d len=%d (%v)", mv.Depth, mv.Offset, mv.Length, mv.Value)
+	}
+
+	if err := decoder.Err(); err != nil {
+		t.Fatalf("decoder error: %s", err)
+	}
+}
+
 func TestDecoderSimple(t *testing.T) {
 	var (
 		counter int

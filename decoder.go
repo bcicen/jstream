@@ -66,10 +66,11 @@ func (kvs KVS) MarshalJSON() ([]byte, error) {
 // JSON values
 type Decoder struct {
 	*scanner
-	emitDepth     int
-	emitKV        bool
-	emitRecursive bool
-	objectAsKVS   bool
+	emitDepth       int
+	emitKV          bool
+	emitRecursive   bool
+	objectAsKVS     bool
+	skipInvalidJSON bool
 
 	depth   int
 	scratch *scratch
@@ -95,6 +96,12 @@ func NewDecoder(r io.Reader, emitDepth int) *Decoder {
 		d.emitDepth = 0
 		d.emitRecursive = true
 	}
+	return d
+}
+
+// SkipInvalidJSON - skips invalid json from the incoming stream.
+func (d *Decoder) SkipInvalidJSON() *Decoder {
+	d.skipInvalidJSON = true
 	return d
 }
 
@@ -144,8 +151,10 @@ func (d *Decoder) decode() {
 	for d.pos < atomic.LoadInt64(&d.end) {
 		_, err := d.emitAny()
 		if err != nil {
-			d.err = err
-			break
+			if !d.skipInvalidJSON {
+				d.err = err
+				break
+			}
 		}
 		d.skipSpaces()
 	}
