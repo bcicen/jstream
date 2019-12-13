@@ -3,6 +3,7 @@ package jstream
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"strconv"
 	"sync/atomic"
@@ -67,9 +68,13 @@ func (kvs KVS) MarshalJSON() ([]byte, error) {
 type Decoder struct {
 	*scanner
 	emitDepth     int
+	aggCount      int
 	emitKV        bool
 	emitRecursive bool
 	objectAsKVS   bool
+	emitObjDepth  int
+	expEmitObjDepth  int
+	total        int
 
 	depth   int
 	scratch *scratch
@@ -84,12 +89,14 @@ type Decoder struct {
 // NewDecoder creates new Decoder to read JSON values at the provided
 // emitDepth from the provider io.Reader.
 // If emitDepth is < 0, values at every depth will be emitted.
-func NewDecoder(r io.Reader, emitDepth int) *Decoder {
+func NewDecoder(r io.Reader, emitDepth, expEmitObjDepth, aggCount int) *Decoder {
 	d := &Decoder{
 		scanner:   newScanner(r),
 		emitDepth: emitDepth,
 		scratch:   &scratch{data: make([]byte, 1024)},
 		metaCh:    make(chan *MetaValue, 128),
+		expEmitObjDepth: expEmitObjDepth,
+		aggCount:  aggCount,
 	}
 	if emitDepth < 0 {
 		d.emitDepth = 0
@@ -149,6 +156,7 @@ func (d *Decoder) decode() {
 		}
 		d.skipSpaces()
 	}
+	fmt.Println(d.total)
 }
 
 func (d *Decoder) emitAny() (interface{}, error) {
@@ -156,7 +164,7 @@ func (d *Decoder) emitAny() (interface{}, error) {
 		return nil, d.mkError(ErrUnexpectedEOF)
 	}
 	offset := d.pos - 1
-	i, t, err := d.any()
+	i, t, err := d.any("")
 	if d.willEmit() {
 		d.metaCh <- &MetaValue{
 			Offset:    int(offset),
@@ -172,6 +180,9 @@ func (d *Decoder) emitAny() (interface{}, error) {
 // return whether, at the current depth, the value being decoded will
 // be emitted to stream
 func (d *Decoder) willEmit() bool {
+	if d.expEmitObjDepth > 0 {
+		return d.depth == d.expEmitObjDepth
+	}
 	if d.emitRecursive {
 		return d.depth >= d.emitDepth
 	}
@@ -180,7 +191,7 @@ func (d *Decoder) willEmit() bool {
 
 // any used to decode any valid JSON value, and returns an
 // interface{} that holds the actual data
-func (d *Decoder) any() (interface{}, ValueType, error) {
+func (d *Decoder) any(pKey string) (interface{}, ValueType, error) {
 	c := d.cur()
 
 	switch c {
@@ -232,7 +243,7 @@ func (d *Decoder) any() (interface{}, ValueType, error) {
 		if d.objectAsKVS {
 			i, err = d.objectOrdered()
 		} else {
-			i, err = d.object()
+			i, err = d.object(pKey)
 		}
 		return i, Object, err
 	default:
@@ -458,7 +469,7 @@ out:
 }
 
 // object accept valid JSON array value
-func (d *Decoder) object() (map[string]interface{}, error) {
+func (d *Decoder) object(pKey string) (map[string]interface{}, error) {
 	d.depth++
 
 	var (
@@ -502,16 +513,30 @@ scan:
 		// read value
 		d.skipSpaces()
 		if d.emitKV {
-			if v, t, err = d.any(); err != nil {
+			if d.willEmit() {
+				d.total++
+			}
+			if v, t, err = d.any(k); err != nil {
 				break
 			}
 			if d.willEmit() {
-				d.metaCh <- &MetaValue{
-					Offset:    int(offset),
-					Length:    int(d.pos - offset),
-					Depth:     d.depth,
-					Value:     KV{k, v},
-					ValueType: t,
+				if pKey != "" && len(obj) > d.aggCount {
+					d.metaCh <- &MetaValue {
+						Offset: int(offset),
+						Length: int(d.pos - offset),
+						Depth:  d.depth,
+						Value:  KV{pKey, obj},
+						ValueType: t,
+					}
+					obj = make(map[string]interface{})
+				}  else if pKey == "" && d.expEmitObjDepth <= 0 {
+					d.metaCh <- &MetaValue {
+						Offset:    int(offset),
+						Length:    int(d.pos - offset),
+						Depth:     d.depth,
+						Value:     KV{k, v},
+						ValueType: t,
+					}
 				}
 			}
 		} else {
@@ -527,6 +552,16 @@ scan:
 		// next token must be ',' or '}'
 		switch c = d.skipSpaces(); c {
 		case '}':
+			if d.emitKV && d.willEmit() && pKey != "" {
+				d.metaCh <- &MetaValue {
+					Offset:    int(offset),
+					Length:    int(d.pos - offset),
+					Depth:     d.depth,
+					Value:     KV{pKey, obj},
+					ValueType: t,
+				}
+				obj = make(map[string]interface{})
+			}
 			goto out
 		case ',':
 			c = d.skipSpaces()
@@ -587,7 +622,7 @@ scan:
 		// read value
 		d.skipSpaces()
 		if d.emitKV {
-			if v, t, err = d.any(); err != nil {
+			if v, t, err = d.any(""); err != nil {
 				break
 			}
 			if d.willEmit() {
