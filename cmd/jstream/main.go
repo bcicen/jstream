@@ -59,7 +59,7 @@ func main() {
 	}
 
 	if *verboseFlag {
-		fmt.Println("depth\tstart\tend\ttype   | value\n")
+		fmt.Println("depth\tstart\tend\ttype   | value")
 	}
 
 	decoder := jstream.NewDecoder(os.Stdin, *depthFlag)
