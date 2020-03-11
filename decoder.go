@@ -191,7 +191,11 @@ func (d *Decoder) any() (interface{}, ValueType, error) {
 		i, err := d.number()
 		return i, Number, err
 	case '-':
-		if c = d.next(); c < '0' && c > '9' {
+		c, err := d.next()
+		if err != nil {
+			return nil, Unknown, err
+		}
+		if c < '0' && c > '9' {
 			return nil, Unknown, d.mkError(ErrSyntax, "in negative numeric literal")
 		}
 		n, err := d.number()
@@ -203,7 +207,18 @@ func (d *Decoder) any() (interface{}, ValueType, error) {
 		if d.remaining() < 4 {
 			return nil, Unknown, d.mkError(ErrUnexpectedEOF)
 		}
-		if d.next() == 'a' && d.next() == 'l' && d.next() == 's' && d.next() == 'e' {
+		found := true
+		for _, r := range []byte{'a', 'l', 's', 'e'} {
+			c, err := d.next()
+			if err != nil {
+				return false, Unknown, err
+			}
+			if c != r {
+				found = false
+			}
+			// found 'r'
+		}
+		if found {
 			return false, Boolean, nil
 		}
 		return nil, Unknown, d.mkError(ErrSyntax, "in literal false")
@@ -211,7 +226,18 @@ func (d *Decoder) any() (interface{}, ValueType, error) {
 		if d.remaining() < 3 {
 			return nil, Unknown, d.mkError(ErrUnexpectedEOF)
 		}
-		if d.next() == 'r' && d.next() == 'u' && d.next() == 'e' {
+		found := true
+		for _, r := range []byte{'r', 'u', 'e'} {
+			c, err := d.next()
+			if err != nil {
+				return false, Unknown, err
+			}
+			if c != r {
+				found = false
+			}
+			// found 'r'
+		}
+		if found {
 			return true, Boolean, nil
 		}
 		return nil, Unknown, d.mkError(ErrSyntax, "in literal true")
@@ -219,7 +245,18 @@ func (d *Decoder) any() (interface{}, ValueType, error) {
 		if d.remaining() < 3 {
 			return nil, Unknown, d.mkError(ErrUnexpectedEOF)
 		}
-		if d.next() == 'u' && d.next() == 'l' && d.next() == 'l' {
+		found := true
+		for _, r := range []byte{'u', 'l', 'l'} {
+			c, err := d.next()
+			if err != nil {
+				return false, Unknown, err
+			}
+			if c != r {
+				found = false
+			}
+			// found 'r'
+		}
+		if found {
 			return nil, Null, nil
 		}
 		return nil, Unknown, d.mkError(ErrSyntax, "in literal null")
@@ -245,16 +282,21 @@ func (d *Decoder) string() (string, error) {
 	d.scratch.reset()
 
 	var (
-		c = d.next()
+		c, err = d.next()
 	)
-
+	if err != nil {
+		return "", err
+	}
 scan:
 	for {
 		switch {
 		case c == '"':
 			return string(d.scratch.bytes()), nil
 		case c == '\\':
-			c = d.next()
+			c, err = d.next()
+			if err != nil {
+				return "", err
+			}
 			goto scan_esc
 		case c < 0x20:
 			return "", d.mkError(ErrSyntax, "in string literal")
@@ -264,7 +306,10 @@ scan:
 			if d.remaining() == 0 {
 				return "", d.mkError(ErrSyntax, "in string literal")
 			}
-			c = d.next()
+			c, err = d.next()
+			if err != nil {
+				return "", err
+			}
 		}
 	}
 
@@ -287,44 +332,61 @@ scan_esc:
 	default:
 		return "", d.mkError(ErrSyntax, "in string escape code")
 	}
-	c = d.next()
+	c, err = d.next()
+	if err != nil {
+		return "", err
+	}
 	goto scan
 
 scan_u:
-	r := d.u4()
-	if r < 0 {
-		return "", d.mkError(ErrSyntax, "in unicode escape sequence")
+	r, err := d.u4()
+	if err != nil {
+		return "", err
 	}
 
 	// check for proceeding surrogate pair
-	c = d.next()
+	c, err = d.next()
+	if err != nil {
+		return "", err
+	}
+
 	if !utf16.IsSurrogate(r) || c != '\\' {
 		d.scratch.addRune(r)
 		goto scan
 	}
-	if c = d.next(); c != 'u' {
+	c, err = d.next()
+	if err != nil {
+		return "", err
+	}
+	if c != 'u' {
 		d.scratch.addRune(r)
 		goto scan_esc
 	}
 
-	r2 := d.u4()
-	if r2 < 0 {
-		return "", d.mkError(ErrSyntax, "in unicode escape sequence")
+	r2, err := d.u4()
+	if err != nil {
+		return "", err
 	}
 
 	// write surrogate pair
 	d.scratch.addRune(utf16.DecodeRune(r, r2))
-	c = d.next()
+	c, err = d.next()
+	if err != nil {
+		return "", err
+	}
 	goto scan
 }
 
 // u4 reads four bytes following a \u escape
-func (d *Decoder) u4() rune {
+func (d *Decoder) u4() (rune, error) {
 	// logic taken from:
 	// github.com/buger/jsonparser/blob/master/escape.go#L20
 	var h [4]int
 	for i := 0; i < 4; i++ {
-		c := d.next()
+		c, err := d.next()
+		if err != nil {
+			return -1, err
+		}
 		switch {
 		case c >= '0' && c <= '9':
 			h[i] = int(c - '0')
@@ -333,10 +395,10 @@ func (d *Decoder) u4() rune {
 		case c >= 'a' && c <= 'f':
 			h[i] = int(c - 'a' + 10)
 		default:
-			return -1
+			return -1, d.mkError(ErrSyntax, "in unicode escape sequence")
 		}
 	}
-	return rune(h[0]<<12 + h[1]<<8 + h[2]<<4 + h[3])
+	return rune(h[0]<<12 + h[1]<<8 + h[2]<<4 + h[3]), nil
 }
 
 // number called by `any` after reading number between 0 to 9
@@ -345,6 +407,7 @@ func (d *Decoder) number() (float64, error) {
 
 	var (
 		c       = d.cur()
+		err     error
 		n       float64
 		isFloat bool
 	)
@@ -353,11 +416,23 @@ func (d *Decoder) number() (float64, error) {
 	switch {
 	case c == '0':
 		d.scratch.add(c)
-		c = d.next()
+		c, err = d.next()
+		if err != nil {
+			return n, err
+		}
 	case '1' <= c && c <= '9':
-		for ; c >= '0' && c <= '9'; c = d.next() {
-			n = 10*n + float64(c-'0')
-			d.scratch.add(c)
+		for {
+			if c >= '0' && c <= '9' {
+				n = 10*n + float64(c-'0')
+				d.scratch.add(c)
+
+				c, err = d.next()
+				if err != nil {
+					return n, err
+				}
+				continue
+			}
+			break
 		}
 	}
 
@@ -367,7 +442,11 @@ func (d *Decoder) number() (float64, error) {
 		d.scratch.add(c)
 
 		// first char following must be digit
-		if c = d.next(); c < '0' && c > '9' {
+		c, err = d.next()
+		if err != nil {
+			return 0, err
+		}
+		if c < '0' && c > '9' {
 			return 0, d.mkError(ErrSyntax, "after decimal point in numeric literal")
 		}
 		d.scratch.add(c)
@@ -376,7 +455,11 @@ func (d *Decoder) number() (float64, error) {
 			if d.remaining() == 0 {
 				return 0, d.mkError(ErrUnexpectedEOF)
 			}
-			if c = d.next(); c < '0' || c > '9' {
+			c, err = d.next()
+			if err != nil {
+				return 0, err
+			}
+			if c < '0' || c > '9' {
 				break
 			}
 			d.scratch.add(c)
@@ -389,15 +472,31 @@ func (d *Decoder) number() (float64, error) {
 		isFloat = true
 		d.scratch.add(c)
 
-		if c = d.next(); c == '+' || c == '-' {
+		c, err = d.next()
+		if err != nil {
+			return 0, err
+		}
+		if c == '+' || c == '-' {
 			d.scratch.add(c)
-			if c = d.next(); c < '0' || c > '9' {
+			c, err = d.next()
+			if err != nil {
+				return 0, err
+			}
+			if c < '0' || c > '9' {
 				return 0, d.mkError(ErrSyntax, "in exponent of numeric literal")
 			}
 			d.scratch.add(c)
 		}
-		for ; c >= '0' && c <= '9'; c = d.next() {
-			d.scratch.add(c)
+		for {
+			c, err = d.next()
+			if err != nil {
+				return 0, err
+			}
+			if c >= '0' && c <= '9' {
+				d.scratch.add(c)
+				continue
+			}
+			break
 		}
 	}
 
@@ -428,7 +527,12 @@ func (d *Decoder) array() ([]interface{}, error) {
 	)
 
 	// look ahead for ] - if the array is empty.
-	if c = d.skipSpaces(); c == ']' {
+	c, err = d.skipSpaces()
+	if err != nil {
+		return nil, err
+	}
+
+	if c == ']' {
 		goto out
 	}
 
@@ -442,7 +546,12 @@ scan:
 	}
 
 	// next token must be ',' or ']'
-	switch c = d.skipSpaces(); c {
+	c, err = d.skipSpaces()
+	if err != nil {
+		return nil, err
+	}
+
+	switch c {
 	case ',':
 		d.skipSpaces()
 		goto scan
@@ -476,7 +585,12 @@ func (d *Decoder) object() (map[string]interface{}, error) {
 	}
 
 	// if the object has no keys
-	if c = d.skipSpaces(); c == '}' {
+	c, err = d.skipSpaces()
+	if err != nil {
+		goto out
+	}
+
+	if c == '}' {
 		goto out
 	}
 
@@ -494,7 +608,11 @@ scan:
 		}
 
 		// read colon before value
-		if c = d.skipSpaces(); c != ':' {
+		c, err = d.skipSpaces()
+		if err != nil {
+			break
+		}
+		if c != ':' {
 			err = d.mkError(ErrSyntax, "after object key")
 			break
 		}
@@ -525,11 +643,18 @@ scan:
 		}
 
 		// next token must be ',' or '}'
-		switch c = d.skipSpaces(); c {
+		c, err = d.skipSpaces()
+		if err != nil {
+			goto out
+		}
+		switch c {
 		case '}':
 			goto out
 		case ',':
-			c = d.skipSpaces()
+			c, err = d.skipSpaces()
+			if err != nil {
+				goto out
+			}
 			goto scan
 		default:
 			err = d.mkError(ErrSyntax, "after object key:value pair")
@@ -561,7 +686,12 @@ func (d *Decoder) objectOrdered() (KVS, error) {
 	}
 
 	// if the object has no keys
-	if c = d.skipSpaces(); c == '}' {
+	c, err = d.skipSpaces()
+	if err != nil {
+		goto out
+	}
+
+	if c == '}' {
 		goto out
 	}
 
@@ -579,7 +709,11 @@ scan:
 		}
 
 		// read colon before value
-		if c = d.skipSpaces(); c != ':' {
+		c, err = d.skipSpaces()
+		if err != nil {
+			break
+		}
+		if c != ':' {
 			err = d.mkError(ErrSyntax, "after object key")
 			break
 		}
@@ -610,11 +744,19 @@ scan:
 		}
 
 		// next token must be ',' or '}'
-		switch c = d.skipSpaces(); c {
+		c, err = d.skipSpaces()
+		if err != nil {
+			goto out
+		}
+
+		switch c {
 		case '}':
 			goto out
 		case ',':
-			c = d.skipSpaces()
+			c, err = d.skipSpaces()
+			if err != nil {
+				goto out
+			}
 			goto scan
 		default:
 			err = d.mkError(ErrSyntax, "after object key:value pair")
@@ -628,9 +770,13 @@ out:
 }
 
 // returns the next char after white spaces
-func (d *Decoder) skipSpaces() byte {
+func (d *Decoder) skipSpaces() (byte, error) {
 	for d.pos < atomic.LoadInt64(&d.end) {
-		switch c := d.next(); c {
+		c, err := d.next()
+		if err != nil {
+			return byte(0), err
+		}
+		switch c {
 		case '\n':
 			d.lineStart = d.pos
 			d.lineNo++
@@ -638,10 +784,10 @@ func (d *Decoder) skipSpaces() byte {
 		case ' ', '\t', '\r':
 			continue
 		default:
-			return c
+			return c, nil
 		}
 	}
-	return 0
+	return 0, nil
 }
 
 // create syntax errors at current position, with optional context

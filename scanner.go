@@ -11,6 +11,11 @@ const (
 	maxInt  = int64(maxUint >> 1)
 )
 
+type fillReady struct {
+	fill int64
+	err  error
+}
+
 type scanner struct {
 	pos       int64 // position in reader
 	ipos      int64 // internal buffer position
@@ -19,23 +24,22 @@ type scanner struct {
 	buf       [chunk + 1]byte // internal buffer (with a lookback size of 1)
 	nbuf      [chunk]byte     // next internal buffer
 	fillReq   chan struct{}
-	fillReady chan int64
+	fillReady chan fillReady
 }
 
 func newScanner(r io.Reader) *scanner {
 	sr := &scanner{
 		end:       maxInt,
 		fillReq:   make(chan struct{}),
-		fillReady: make(chan int64),
+		fillReady: make(chan fillReady),
 	}
 
 	go func() {
 		var rpos int64 // total bytes read into buffer
 
-		for _ = range sr.fillReq {
+		for range sr.fillReq {
 		scan:
 			n, err := r.Read(sr.nbuf[:])
-
 			if n == 0 {
 				switch err {
 				case io.EOF: // reader is exhausted
@@ -45,12 +49,14 @@ func newScanner(r io.Reader) *scanner {
 				case nil: // no data and no error, retry fill
 					goto scan
 				default:
-					panic(err)
+					sr.fillReady <- fillReady{0, err}
+					close(sr.fillReady)
+					return
 				}
 			}
 
 			rpos += int64(n)
-			sr.fillReady <- int64(n)
+			sr.fillReady <- fillReady{int64(n), nil}
 		}
 	}()
 
@@ -73,14 +79,20 @@ func (s *scanner) remaining() int64 {
 func (s *scanner) cur() byte { return s.buf[s.ipos] }
 
 // read next byte
-func (s *scanner) next() byte {
+func (s *scanner) next() (byte, error) {
 	if s.pos >= atomic.LoadInt64(&s.end) {
-		return byte(0)
+		return byte(0), nil
 	}
 	s.ipos++
 
 	if s.ipos > s.ifill { // internal buffer is exhausted
-		s.ifill = <-s.fillReady
+		fr := <-s.fillReady
+		if fr.err != nil {
+			// Unhandled error return to the caller.
+			return byte(0), fr.err
+		}
+
+		s.ifill = fr.fill
 		s.buf[0] = s.buf[len(s.buf)-1] // copy current last item to guarantee lookback
 		copy(s.buf[1:], s.nbuf[:])     // copy contents of pre-filled next buffer
 		s.ipos = 1                     // move to beginning of internal buffer
@@ -92,7 +104,7 @@ func (s *scanner) next() byte {
 	}
 
 	s.pos++
-	return s.buf[s.ipos]
+	return s.buf[s.ipos], nil
 }
 
 // back undoes a previous call to next(), moving backward one byte in the internal buffer.

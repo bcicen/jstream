@@ -21,7 +21,10 @@ func TestScanner(t *testing.T) {
 	r := bytes.NewReader(data)
 	scanner := newScanner(r)
 	for scanner.pos < atomic.LoadInt64(&scanner.end) {
-		c := scanner.next()
+		c, err := scanner.next()
+		if err != nil {
+			t.Fatal(err)
+		}
 		if c != data[i] {
 			t.Fatalf("expected %s, got %s", string(data[i]), string(c))
 		}
