@@ -3,6 +3,7 @@ package jstream
 import (
 	"bufio"
 	"bytes"
+	"fmt"
 	"io"
 	"sync/atomic"
 	"testing"
@@ -22,13 +23,63 @@ func TestScanner(t *testing.T) {
 	scanner := newScanner(r)
 	for scanner.pos < atomic.LoadInt64(&scanner.end) {
 		c := scanner.next()
+		if scanner.readerErr != nil {
+			t.Fatal(scanner.readerErr)
+		}
 		if c != data[i] {
 			t.Fatalf("expected %s, got %s", string(data[i]), string(c))
 		}
 		t.Logf("pos=%d remaining=%d (%s)", i, r.Len(), string(c))
 		i++
 	}
+}
 
+type mockReader struct {
+	pos       int
+	mockData  byte
+	failAfter int
+}
+
+func newMockReader(failAfter int, data byte) *mockReader {
+	return &mockReader{0, data, failAfter}
+}
+
+func (r *mockReader) Read(p []byte) (n int, err error) {
+	if r.pos >= r.failAfter {
+		return 0, fmt.Errorf("intentionally unexpected reader error")
+	}
+	r.pos++
+	p[0] = r.mockData
+	return 1, nil
+}
+
+func TestScannerFailure(t *testing.T) {
+	var (
+		i         int
+		failAfter = 900
+		mockData  = byte(32)
+	)
+
+	r := newMockReader(failAfter, mockData)
+	scanner := newScanner(r)
+
+	for i < 1000 {
+		c := scanner.next()
+		if c == byte(0) {
+			break
+		}
+		if c != mockData {
+			t.Fatalf("expected \"%s\", got \"%s\"", string(mockData), string(c))
+		}
+		i++
+	}
+	c := scanner.next()
+	if scanner.readerErr == nil {
+		t.Fatalf("failed to recieve expected error after %d bytes", failAfter)
+	}
+	if c != byte(0) {
+		t.Fatalf("expected null byte, got %v", c)
+	}
 }
 
 func BenchmarkBufioScanner(b *testing.B) {
