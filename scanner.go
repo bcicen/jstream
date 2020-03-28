@@ -32,7 +32,7 @@ func newScanner(r io.Reader) *scanner {
 	go func() {
 		var rpos int64 // total bytes read into buffer
 
-		for _ = range sr.fillReq {
+		for range sr.fillReq {
 		scan:
 			n, err := r.Read(sr.nbuf[:])
 
