@@ -39,7 +39,7 @@ func newScanner(r io.Reader) *scanner {
 			close(sr.fillReady)
 		}()
 
-		for _ = range sr.fillReq {
+		for range sr.fillReq {
 		scan:
 			n, err := r.Read(sr.nbuf[:])
 

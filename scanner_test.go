@@ -75,7 +75,7 @@ func TestScannerFailure(t *testing.T) {
 	}
 	c := scanner.next()
 	if scanner.readerErr == nil {
-		t.Fatalf("failed to recieve expected error after %d bytes", failAfter)
+		t.Fatalf("failed to receive expected error after %d bytes", failAfter)
 	}
 	if c != byte(0) {
 		t.Fatalf("expected null byte, got %v", c)
