@@ -141,7 +141,7 @@ func (d *Decoder) Err() error { return d.err }
 func (d *Decoder) decode() {
 	defer close(d.metaCh)
 	d.skipSpaces()
-	for d.pos < atomic.LoadInt64(&d.end) {
+	for d.remaining() > 0 {
 		_, err := d.emitAny()
 		if err != nil {
 			d.err = err
@@ -244,9 +244,7 @@ func (d *Decoder) any() (interface{}, ValueType, error) {
 func (d *Decoder) string() (string, error) {
 	d.scratch.reset()
 
-	var (
-		c = d.next()
-	)
+	var c = d.next()
 
 scan:
 	for {
@@ -645,12 +643,13 @@ func (d *Decoder) skipSpaces() byte {
 }
 
 // create syntax errors at current position, with optional context
-func (d *Decoder) mkError(err SyntaxError, context ...string) error {
+func (d *Decoder) mkError(err DecoderError, context ...string) error {
 	if len(context) > 0 {
 		err.context = context[0]
 	}
 	err.atChar = d.cur()
 	err.pos[0] = d.lineNo + 1
 	err.pos[1] = int(d.pos - d.lineStart)
+	err.readerErr = d.readerErr
 	return err
 }

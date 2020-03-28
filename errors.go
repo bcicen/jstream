@@ -7,22 +7,29 @@ import (
 
 // Predefined errors
 var (
-	ErrSyntax        = SyntaxError{msg: "invalid character"}
-	ErrUnexpectedEOF = SyntaxError{msg: "unexpected end of JSON input"}
+	ErrSyntax        = DecoderError{msg: "invalid character"}
+	ErrUnexpectedEOF = DecoderError{msg: "unexpected end of JSON input"}
 )
 
 type errPos [2]int // line number, byte offset where error occurred
 
-type SyntaxError struct {
-	msg     string // description of error
-	context string // additional error context
-	pos     errPos
-	atChar  byte
+type DecoderError struct {
+	msg       string // description of error
+	context   string // additional error context
+	pos       errPos
+	atChar    byte
+	readerErr error // underlying reader error, if any
 }
 
-func (e SyntaxError) Error() string {
+func (e DecoderError) ReaderErr() error { return e.readerErr }
+
+func (e DecoderError) Error() string {
 	loc := fmt.Sprintf("%s [%d,%d]", quoteChar(e.atChar), e.pos[0], e.pos[1])
-	return fmt.Sprintf("%s %s: %s", e.msg, e.context, loc)
+	s := fmt.Sprintf("%s %s: %s", e.msg, e.context, loc)
+	if e.readerErr != nil {
+		s += "\nreader error: " + e.readerErr.Error()
+	}
+	return s
 }
 
 // quoteChar formats c as a quoted character literal

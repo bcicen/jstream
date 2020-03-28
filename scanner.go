@@ -6,9 +6,10 @@ import (
 )
 
 const (
-	chunk   = 4095 // ~4k
-	maxUint = ^uint(0)
-	maxInt  = int64(maxUint >> 1)
+	chunk    = 4095 // ~4k
+	maxUint  = ^uint(0)
+	maxInt   = int64(maxUint >> 1)
+	nullByte = byte(0)
 )
 
 type scanner struct {
@@ -20,6 +21,7 @@ type scanner struct {
 	nbuf      [chunk]byte     // next internal buffer
 	fillReq   chan struct{}
 	fillReady chan int64
+	readerErr error // underlying reader error, if any
 }
 
 func newScanner(r io.Reader) *scanner {
@@ -32,20 +34,24 @@ func newScanner(r io.Reader) *scanner {
 	go func() {
 		var rpos int64 // total bytes read into buffer
 
-		for range sr.fillReq {
+		defer func() {
+			atomic.StoreInt64(&sr.end, rpos)
+			close(sr.fillReady)
+		}()
+
+		for _ = range sr.fillReq {
 		scan:
 			n, err := r.Read(sr.nbuf[:])
 
 			if n == 0 {
 				switch err {
 				case io.EOF: // reader is exhausted
-					atomic.StoreInt64(&sr.end, rpos)
-					close(sr.fillReady)
 					return
 				case nil: // no data and no error, retry fill
 					goto scan
-				default:
-					panic(err)
+				default: // unexpected reader error
+					sr.readerErr = err
+					return
 				}
 			}
 
@@ -75,12 +81,13 @@ func (s *scanner) cur() byte { return s.buf[s.ipos] }
 // read next byte
 func (s *scanner) next() byte {
 	if s.pos >= atomic.LoadInt64(&s.end) {
-		return byte(0)
+		return nullByte
 	}
 	s.ipos++
 
 	if s.ipos > s.ifill { // internal buffer is exhausted
 		s.ifill = <-s.fillReady
+
 		s.buf[0] = s.buf[len(s.buf)-1] // copy current last item to guarantee lookback
 		copy(s.buf[1:], s.nbuf[:])     // copy contents of pre-filled next buffer
 		s.ipos = 1                     // move to beginning of internal buffer
