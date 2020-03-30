@@ -48,7 +48,7 @@ func printVal(mv *jstream.MetaValue) {
 		fmt.Printf("%d\t%03d\t%03d\t%s| %s\n", mv.Depth, mv.Offset, end, label, s)
 		return
 	}
-	fmt.Printf("%s| %s\n", label, s)
+	fmt.Println(s)
 }
 
 func main() {

@@ -61,11 +61,31 @@ go get github.com/bcicen/jstream
 `jstream` comes with a cli tool for quick viewing of parsed values from JSON input:
 
 ```bash
-cat input.json | jstream -v -d 1
-depth	start	end	type   | value
+cat input.json | jstream -d 1
 
+{"colors":["red","green","blue"],"desc":"RGB"}
+{"colors":["cyan","magenta","yellow","black"],"desc":"CMYK"}
+```
+
+detailed output with `-v` option:
+```bash
+cat input.json | jstream -v -d -1
+
+depth	start	end	type   | value
+2	018	023	string | "RGB"
+3	041	046	string | "red"
+3	048	055	string | "green"
+3	057	063	string | "blue"
+2	039	065	array  | ["red","green","blue"]
 1	004	069	object | {"colors":["red","green","blue"],"desc":"RGB"}
+2	087	093	string | "CMYK"
+3	111	117	string | "cyan"
+3	119	128	string | "magenta"
+3	130	138	string | "yellow"
+3	140	147	string | "black"
+2	109	149	array  | ["cyan","magenta","yellow","black"]
 1	073	153	object | {"colors":["cyan","magenta","yellow","black"],"desc":"CMYK"}
+0	000	155	array  | [{"colors":["red","green","blue"],"desc":"RGB"},{"colors":["cyan","magenta","yellow","black"],"desc":"CMYK"}]
 ```
 
 ### Options
