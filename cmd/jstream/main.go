@@ -10,10 +10,10 @@ import (
 )
 
 var (
-	depthFlag   = flag.Int("d", 0, "emit values at depth <int>")
-	kvFlag      = flag.Bool("kv", false, "output key value pairs. default behavior is to emit only JSON object values.")
-	verboseFlag = flag.Bool("v", false, "output depth and offset details for each value")
-	helpFlag    = flag.Bool("h", false, "display this help dialog")
+	depthFlag   = flag.Int("d", 0, "")
+	kvFlag      = flag.Bool("kv", false, "")
+	verboseFlag = flag.Bool("v", false, "")
+	helpFlag    = flag.Bool("h", false, "")
 )
 
 func exitErr(err error) {
@@ -81,6 +81,7 @@ usage: jstream [options]
 options:
 
   -d <n> emit values at depth n. if n < 0, all values will be emitted
+  -kv    output inner key value pairs as newly formed objects
   -v     output depth and offset details for each value
   -h     display this help dialog
 `

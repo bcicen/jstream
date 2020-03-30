@@ -61,8 +61,10 @@ go get github.com/bcicen/jstream
 `jstream` comes with a cli tool for quick viewing of parsed values from JSON input:
 
 ```bash
-cat input.json | jstream -d 1
+jstream -d 1 < input.json
+```
 
+```json
 {"colors":["red","green","blue"],"desc":"RGB"}
 {"colors":["cyan","magenta","yellow","black"],"desc":"CMYK"}
 ```
@@ -93,6 +95,7 @@ depth	start	end	type   | value
 Opt | Description
 --- | ---
 -d \<n\> | emit values at depth n. if n < 0, all values will be emitted
+-kv | output inner key value pairs as newly formed objects
 -v | output depth and offset details for each value
 -h | display help dialog
 
