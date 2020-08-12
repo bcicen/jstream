@@ -1,0 +1,10 @@
+[
+  {
+    "desc": "RGB",
+    "colors": [ "red", "green", "blue" ]
+  },
+  {
+    "desc": "CMYK",
+    "colors": [ "cyan", "magenta", "yellow", "black" ]
+  }
+]
