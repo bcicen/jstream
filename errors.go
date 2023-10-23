@@ -9,6 +9,7 @@ import (
 var (
 	ErrSyntax        = DecoderError{msg: "invalid character"}
 	ErrUnexpectedEOF = DecoderError{msg: "unexpected end of JSON input"}
+	ErrCanceled      = DecoderError{msg: "operation canceled"}
 )
 
 type errPos [2]int // line number, byte offset where error occurred
