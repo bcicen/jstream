@@ -2,6 +2,7 @@ package jstream
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 )
 
@@ -233,5 +234,43 @@ func TestDecoderReaderFailure(t *testing.T) {
 
 	if derr.ReaderErr() == nil {
 		t.Fatalf("missing expected underlying reader error")
+	}
+}
+
+func TestDecoderCallback(t *testing.T) {
+	var result []*MetaValue
+	body := `{ "bio": "bada bing bada boom", "id": 1, "name": "Charles" }
+{ "bio": "bada bing bada boom", "id": 2, "name": "Charles" }
+{ "bio": "bada bing bada boom", "id": 3, "name": "Charles" }
+{ "bio": "bada bing bada boom", "id": 4, "name": "Charles" }
+{ "bio": "bada bing bada boom", "id": 5, "name": "Charles" }
+`
+
+	// receive all
+	result = result[:0]
+	decoder := NewDecoder(mkReader(body), 0)
+	decoder.Decode(func(meta *MetaValue) bool {
+		result = append(result, meta)
+		return true
+	})
+	// assert result
+	if len(result) != 5 {
+		t.Fatalf("expected 5 items, got %d", len(result))
+	}
+
+	// receive 2
+	result = result[:0]
+	decoder = NewDecoder(mkReader(body), 0)
+	err := decoder.Decode(func(meta *MetaValue) bool {
+		result = append(result, meta)
+		return len(result) < 2
+	})
+	// assert result
+	if len(result) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(result))
+	}
+	// assert cancel error
+	if err == nil || !strings.Contains(err.Error(), "operation canceled") {
+		t.Fatalf("expected cancel error, got %s", err)
 	}
 }
