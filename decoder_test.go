@@ -235,3 +235,42 @@ func TestDecoderReaderFailure(t *testing.T) {
 		t.Fatalf("missing expected underlying reader error")
 	}
 }
+
+func TestDecoderMaxDepth(t *testing.T) {
+	tests := []struct {
+		input    string
+		maxDepth int
+		mustFail bool
+	}{
+		// No limit
+		{input: `[{"bio":"bada bing bada boom","id":1,"name":"Charles","falseVal":false}]`, maxDepth: 0, mustFail: false},
+		// Array + object = depth 2 = false
+		{input: `[{"bio":"bada bing bada boom","id":1,"name":"Charles","falseVal":false}]`, maxDepth: 1, mustFail: true},
+		// Depth 2 = ok
+		{input: `[{"bio":"bada bing bada boom","id":1,"name":"Charles","falseVal":false}]`, maxDepth: 2, mustFail: false},
+		// Arrays:
+		{input: `[[[[[[[[[[[[[[[[[[[[[["ok"]]]]]]]]]]]]]]]]]]]]]]`, maxDepth: 2, mustFail: true},
+		{input: `[[[[[[[[[[[[[[[[[[[[[["ok"]]]]]]]]]]]]]]]]]]]]]]`, maxDepth: 10, mustFail: true},
+		{input: `[[[[[[[[[[[[[[[[[[[[[["ok"]]]]]]]]]]]]]]]]]]]]]]`, maxDepth: 100, mustFail: false},
+		// Objects:
+		{input: `{"a":{"a":{"a":{"a":{"a":{"a":{"a":{"a":{"a":{"a":{"a":{"a":{"a":{"a":{"a":{"a":{"a":{"a":{"a":{"a":{"a":{"ok":false}}}}}}}}}}}}}}}}}}}}}}`, maxDepth: 2, mustFail: true},
+		{input: `{"a":{"a":{"a":{"a":{"a":{"a":{"a":{"a":{"a":{"a":{"a":{"a":{"a":{"a":{"a":{"a":{"a":{"a":{"a":{"a":{"a":{"ok":false}}}}}}}}}}}}}}}}}}}}}}`, maxDepth: 10, mustFail: true},
+		{input: `{"a":{"a":{"a":{"a":{"a":{"a":{"a":{"a":{"a":{"a":{"a":{"a":{"a":{"a":{"a":{"a":{"a":{"a":{"a":{"a":{"a":{"ok":false}}}}}}}}}}}}}}}}}}}}}}`, maxDepth: 100, mustFail: false},
+	}
+
+	for _, test := range tests {
+		decoder := NewDecoder(mkReader(test.input), 0).MaxDepth(test.maxDepth)
+		var mv *MetaValue
+		for mv = range decoder.Stream() {
+			t.Logf("depth=%d offset=%d len=%d (%v)", mv.Depth, mv.Offset, mv.Length, mv.Value)
+		}
+
+		err := decoder.Err()
+		if test.mustFail && err != ErrMaxDepth {
+			t.Fatalf("missing expected decoder error, got %q", err)
+		}
+		if !test.mustFail && err != nil {
+			t.Fatalf("unexpected error: %q", err)
+		}
+	}
+}
