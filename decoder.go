@@ -399,7 +399,7 @@ func (d *Decoder) number() (float64, error) {
 		}
 	}
 
-	if isFloat {
+	if isFloat || n >= 1<<53 {
 		var (
 			err error
 			sn  string

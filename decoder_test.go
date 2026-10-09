@@ -2,10 +2,74 @@ package jstream
 
 import (
 	"bytes"
+	"encoding/json"
+	"math"
+	"strconv"
+	"strings"
 	"testing"
 )
 
 func mkReader(s string) *bytes.Reader { return bytes.NewReader([]byte(s)) }
+
+func TestDecoderIntegerRounding(t *testing.T) {
+	tests := []struct {
+		name, number string
+	}{
+		{"zero", "0"},
+		{"small", "12345"},
+		{"belowExactLimit", "9007199254740991"},
+		{"exactLimit", "9007199254740992"},
+		{"aboveExactLimit", "9007199254740993"},
+		{"oddAboveExactLimit", "9007199254740995"},
+		{"reportedID", "144126219108390099"},
+		{"signed64Limit", "9223372036854775807"},
+		{"unsigned64Limit", "18446744073709551615"},
+		{"wideInteger", "12345678901234567890"},
+		{"longInteger", strings.Repeat("1234567890", 10)},
+		{"largePowerOfTen", "1" + strings.Repeat("0", 100)},
+	}
+	for _, tt := range tests {
+		for _, prefix := range []string{"", "-"} {
+			number := prefix + tt.number
+			t.Run(prefix+tt.name, func(t *testing.T) {
+				var want float64
+				if err := json.Unmarshal([]byte(number), &want); err != nil {
+					t.Fatal(err)
+				}
+				decoder := NewDecoder(mkReader("["+number+"]"), 1)
+				count := 0
+				for mv := range decoder.Stream() {
+					count++
+					got, ok := mv.Value.(float64)
+					if !ok || mv.ValueType != Number {
+						t.Fatalf("got %v (%v), expected a number", mv.Value, mv.ValueType)
+					}
+					if math.Float64bits(got) != math.Float64bits(want) {
+						t.Errorf("%s: got %.17g, expected %.17g", number, got, want)
+					}
+				}
+				if err := decoder.Err(); err != nil {
+					t.Fatal(err)
+				}
+				if count != 1 {
+					t.Fatalf("got %d values, expected 1", count)
+				}
+			})
+		}
+	}
+}
+
+func TestDecoderIntegerOverflow(t *testing.T) {
+	for _, prefix := range []string{"", "-"} {
+		decoder := NewDecoder(mkReader("["+prefix+strings.Repeat("9", 400)+"]"), 1)
+		for range decoder.Stream() {
+		}
+		err, ok := decoder.Err().(*strconv.NumError)
+		if !ok || err.Err != strconv.ErrRange {
+			t.Errorf("prefix %q: got %v, expected a numeric range error", prefix, decoder.Err())
+		}
+	}
+}
 
 func TestDecoderSimple(t *testing.T) {
 	var (
